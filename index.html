@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A321 Tail Working Platform – 3D Model</title>
+<style>
+  :root{
+    --bg:#eef1f4; --panel:rgba(255,255,255,.94); --ink:#1d2733; --muted:#5f6c7a;
+    --line:#d5dbe2; --accent:#e36d2a; --accent2:#2f6fb0;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #app{position:fixed;inset:0}
+  #app canvas{display:block}
+  header{position:fixed;left:12px;top:12px;right:12px;display:flex;gap:12px;align-items:flex-start;pointer-events:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(20,30,40,.08);pointer-events:auto}
+  #title{padding:10px 14px}
+  #title h1{margin:0;font-size:16px;letter-spacing:.2px}
+  #title p{margin:2px 0 0;color:var(--muted);font-size:12px}
+  #views{margin-left:auto;padding:6px;display:flex;flex-wrap:wrap;gap:4px;max-width:560px;justify-content:flex-end}
+  button{font:inherit;border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:7px;padding:5px 10px;cursor:pointer}
+  button:hover{border-color:var(--accent2);color:var(--accent2)}
+  button.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
+  #panel{position:fixed;left:12px;top:84px;width:250px;max-height:calc(100% - 96px);overflow:auto;padding:4px 12px 12px}
+  #panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:12px 0 6px}
+  #panel label{display:flex;align-items:center;gap:8px;padding:2px 0;cursor:pointer}
+  .sw{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);flex:none}
+  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  input[type=range]{width:100%}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  td{padding:2px 0;border-bottom:1px solid #edf0f3}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  #pick{position:fixed;right:12px;bottom:12px;padding:10px 14px;min-width:220px;max-width:340px;display:none}
+  #pick b{display:block;margin-bottom:2px}
+  #hint{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);padding:6px 12px;color:var(--muted);font-size:12px;white-space:nowrap}
+  #toggle{display:none}
+  .lbl{font:600 11px system-ui,sans-serif;color:#fff;background:rgba(29,39,51,.82);padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none}
+  .lbl.grid{background:#fff;color:var(--ink);border:1.5px solid var(--ink);border-radius:50%;width:26px;height:26px;padding:0;display:flex;align-items:center;justify-content:center}
+  .note{color:var(--muted);font-size:11px;margin-top:6px}
+  @media (max-width:760px){
+    header{flex-direction:column}
+    #views{margin-left:0;max-width:none;justify-content:flex-start}
+    #panel{top:auto;bottom:12px;max-height:45%;display:none}
+    #panel.open{display:block}
+    #toggle{display:inline-block}
+    #hint{display:none}
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+
+<header>
+  <div id="title" class="card">
+    <h1>A321 Tail Working Platform — 3D Model</h1>
+    <p>From drawing set A321-T001A … T007A (Platform Design 1/7–7/7) · Preliminary, not for construction</p>
+  </div>
+  <div id="views" class="card">
+    <button id="toggle">☰ Layers</button>
+    <button data-view="iso" class="on">3D</button>
+    <button data-view="plan">Plan</button>
+    <button data-view="side">Side 6-6</button>
+    <button data-view="front">Front</button>
+    <button data-view="tail">Tail 1-1</button>
+    <button data-view="tailIso">Tail tower</button>
+    <button data-view="nose">Nose</button>
+  </div>
+</header>
+
+<aside id="panel" class="card">
+  <h2>Assemblies</h2>
+  <div id="layers"></div>
+  <h2>Components</h2>
+  <div id="cats"></div>
+  <h2>Section cut (along aircraft)</h2>
+  <label><input type="checkbox" id="cutOn"> Enable cut</label>
+  <input type="range" id="cutX" min="0" max="50" step="0.05" value="40.15">
+  <div class="row"><span id="cutVal" style="flex:1">X = 40.15 m</span>
+    <button id="cutFlip" title="Swap which side is kept">⇄</button></div>
+  <div class="row" style="margin-top:6px" id="cutPresets"></div>
+  <h2>Quantities (model)</h2>
+  <table id="qty"></table>
+  <h2>Export</h2>
+  <div class="row">
+    <button id="glb">Download .glb</button>
+  </div>
+  <div class="note" id="glbNote">3D file for SketchUp, Blender, Revit (via import), etc.</div>
+  <div class="note">Dimensions taken from the PDF drawing; aircraft is reference geometry only. Units: metres from nose tip (X), ground (Y).</div>
+</aside>
+
+<div id="pick" class="card"></div>
+<div id="hint" class="card">Drag to orbit · right-drag to pan · scroll to zoom · click a part for details</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+/* ======================================================================
+   DRAWING DATA (all values from the PDF, converted mm → m)
+   X = along aircraft from nose tip, Y = up from floor, Z = lateral
+   ====================================================================== */
+const MAIN_X0   = 4.38;                                  // main platform start (plan, grid D)
+const MAIN_BAYS = [...Array(9).fill(1.8), 1.2, ...Array(8).fill(1.8)];   // 31.8 m
+const MAIN_Z    = [-4.05, -2.25, -0.75, 0.75, 2.25, 4.05];               // 1800/1500/1500/1500/1800
+const MAIN_DECK = 6.048, MAIN_TOP = 8.048;
+const MAIN_LEVELS = [0.648, 2.148, 4.148, MAIN_DECK];
+const WING_LINES = new Set([8, 9, 10]);                  // grid lines that hang above the wing
+
+const TAIL_X = [39.26, 41.06, 42.86, 44.66, 46.46, 48.26];               // A1 … F1
+const TAIL_Z = [-4.2, -2.4, -0.6, 0.6, 2.4, 4.2];                        // 1800/1800/1200/1800/1800
+const TAIL_LEVELS = [0.648, 2.148, 3.648, 5.148, 6.148, 8.148, 9.648, 11.148, 12.648];
+const TAIL_DECKS = [6.148, 8.148, 9.648, 11.148];
+
+const NOSE_DECK = 4.048, NOSE_TOP = 6.048;
+const NOSE_TOWERS = [ {x:1.24, z:-2.33, rot: 22.8*Math.PI/180, side:-1},
+                      {x:1.24, z: 2.33, rot:-22.8*Math.PI/180, side: 1} ];
+
+const BASE = 0.448;      // top of base jack / caster
+const R = 0.02415;       // Ø48.3 tube
+
+/* ====================================================================== */
+const V = (x,y,z)=>new THREE.Vector3(x,y,z);
+const UP = V(0,1,0);
+
+const CATS = {
+  post:  {label:'Vertical standard Ø48.3', color:0xcfd6dd, kind:'tube',  grp:'structure'},
+  ledger:{label:'Ledger / horizontal',     color:0xaab6c2, kind:'tube',  grp:'structure'},
+  beam:  {label:'Deck support beam',       color:0x8796a6, kind:'tube',  grp:'structure'},
+  jack:  {label:'Base jack',               color:0x4a525a, kind:'tube',  grp:'structure'},
+  node:  {label:'Rosette node',            color:0x9aa4ae, kind:'node',  grp:'structure'},
+  caster:{label:'Caster wheel',            color:0x24282c, kind:'wheel', grp:'structure'},
+  brace: {label:'Diagonal brace',          color:0x5b84b1, kind:'tube',  grp:'brace'},
+  rail:  {label:'Guardrail',               color:0xf0b429, kind:'tube',  grp:'rail'},
+  deck:  {label:'Steel deck panel',        color:0x7f8b98, kind:'box',   grp:'deck'},
+  hatch: {label:'Access hatch deck',       color:0xe36d2a, kind:'box',   grp:'deck'},
+  toe:   {label:'Toe board',               color:0xf0b429, kind:'box',   grp:'deck'},
+  stair: {label:'Stair stringer / ladder', color:0x9aa5b1, kind:'tube',  grp:'access'},
+  tread: {label:'Stair tread',             color:0xb3bcc5, kind:'box',   grp:'access'},
+};
+const GROUPS = {
+  structure:{label:'Standards, ledgers, casters', color:0xcfd6dd, on:true},
+  brace:    {label:'Diagonal bracing',            color:0x5b84b1, on:true},
+  rail:     {label:'Guardrails',                  color:0xf0b429, on:true},
+  deck:     {label:'Decks & toe boards',          color:0x7f8b98, on:true},
+  access:   {label:'Stairs & ladders',            color:0xb3bcc5, on:true},
+};
+const LAYERS = {
+  aircraft:{label:'Airbus A321 (reference)', color:0xf4f6f8, on:true},
+  main:    {label:'Main fuselage platform',  color:0x7f8b98, on:true},
+  nose:    {label:'Nose towers (×2)',        color:0x5b84b1, on:true},
+  tail:    {label:'Tail tower',              color:0xe36d2a, on:true},
+  people:  {label:'Workers (scale)',         color:0x2f6fb0, on:true},
+  labels:  {label:'Levels & grid labels',    color:0x1d2733, on:true},
+  floor:   {label:'Hangar floor grid',       color:0xd9dde1, on:true},
+};
+
+/* ---------------- geometry builder ---------------- */
+class Builder{
+  constructor(name){ this.name=name; this.items={}; this.m=new THREE.Matrix4(); }
+  push(cat, matrix, info){ (this.items[cat] ||= []).push({matrix, info}); }
+  tube(cat, a, b, r=R){
+    const A=a.clone().applyMatrix4(this.m), B=b.clone().applyMatrix4(this.m);
+    const d=B.clone().sub(A), len=d.length(); if(len<1e-4) return;
+    const q=new THREE.Quaternion().setFromUnitVectors(UP, d.divideScalar(len));
+    const mid=A.clone().add(B).multiplyScalar(.5);
+    this.push(cat, new THREE.Matrix4().compose(mid,q,V(r,len,r)), {len, y0:Math.min(A.y,B.y), y1:Math.max(A.y,B.y)});
+  }
+  box(cat, c, size, rotY=0){
+    const local=new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromAxisAngle(UP,rotY), size);
+    const w=c.clone().applyMatrix4(this.m);
+    this.push(cat, this.m.clone().multiply(local), {size:size.clone(), y:w.y});
+  }
+  node(p){ const w=p.clone().applyMatrix4(this.m); this.push('node', new THREE.Matrix4().makeTranslation(w.x,w.y,w.z), {y:w.y}); }
+  caster(x, z, ytop){
+    this.tube('jack', V(x,0.2,z), V(x,ytop,z), 0.017);
+    const w=V(x,0.1,z).applyMatrix4(this.m);
+    const q=new THREE.Quaternion().setFromRotationMatrix(this.m)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(V(1,0,0), Math.PI/2));
+    this.push('caster', new THREE.Matrix4().compose(w,q,V(0.1,0.05,0.1)), {});
+  }
+}
+
+/* Ringlock-style grid scaffold: posts at cell corners, ledgers on every edge,
+   braces + guardrails on the outside faces. */
+function gridScaffold(B, o){
+  const {xs, zs, cells, postSpan, levels, rails=[], braceLevels=levels} = o;
+  const key=(i,j)=>i+','+j;
+  const nodes=new Map(), edges=new Map();
+  for(const [i,j] of cells){
+    for(const [di,dj] of [[0,0],[1,0],[0,1],[1,1]]){
+      const k=key(i+di,j+dj);
+      if(!nodes.has(k)) nodes.set(k,{i:i+di,j:j+dj,spans:postSpan(i+di,j+dj)});
+    }
+    for(const [a,b] of [[key(i,j),key(i+1,j)],[key(i,j+1),key(i+1,j+1)],[key(i,j),key(i,j+1)],[key(i+1,j),key(i+1,j+1)]]){
+      const k=a+'|'+b; edges.set(k,(edges.get(k)||0)+1);
+    }
+  }
+  const P=(n,y)=>V(xs[n.i],y,zs[n.j]);
+  const cov=(n,y)=>n.spans.some(([a,b])=>y>=a-1e-6&&y<=b+1e-6);
+  const covR=(n,y0,y1)=>n.spans.some(([a,b])=>y0>=a-1e-6&&y1<=b+1e-6);
+  for(const n of nodes.values()){
+    for(const [a,b] of n.spans){ B.tube('post',P(n,a),P(n,b)); if(a<0.6) B.caster(xs[n.i],zs[n.j],a); }
+    for(const y of levels) if(cov(n,y)) B.node(P(n,y));
+  }
+  for(const [k,cnt] of edges){
+    const [ka,kb]=k.split('|'), na=nodes.get(ka), nb=nodes.get(kb);
+    for(const y of levels) if(cov(na,y)&&cov(nb,y)) B.tube('ledger',P(na,y),P(nb,y));
+    if(cnt!==1) continue;                         // outside faces only below
+    for(const y of rails) if(cov(na,y)&&cov(nb,y)) B.tube('rail',P(na,y),P(nb,y));
+    for(let t=0;t<braceLevels.length-1;t++){
+      const y0=braceLevels[t], y1=braceLevels[t+1];
+      if(covR(na,y0,y1)&&covR(nb,y0,y1)) B.tube('brace',P(na,y0),P(nb,y1));
+    }
+  }
+}
+
+/* deck panels + toe boards around the perimeter of a set of cells */
+function decks(B, xs, zs, cells, y, hatch=new Set()){
+  const set=new Set(cells.map(([i,j])=>i+','+j));
+  const T=0.04, yc=y+R+T/2;
+  for(const [i,j] of cells){
+    const dx=xs[i+1]-xs[i], dz=zs[j+1]-zs[j];
+    B.box(hatch.has(i+','+j)?'hatch':'deck', V(xs[i]+dx/2,yc,zs[j]+dz/2), V(dx-0.03,T,dz-0.03));
+    const ty=y+R+0.075;
+    if(!set.has(i+','+(j-1))) B.box('toe',V(xs[i]+dx/2,ty,zs[j]+0.02),V(dx,0.15,0.025));
+    if(!set.has(i+','+(j+1))) B.box('toe',V(xs[i]+dx/2,ty,zs[j+1]-0.02),V(dx,0.15,0.025));
+    if(!set.has((i-1)+','+j)) B.box('toe',V(xs[i]+0.02,ty,zs[j]+dz/2),V(0.025,0.15,dz));
+    if(!set.has((i+1)+','+j)) B.box('toe',V(xs[i+1]-0.02,ty,zs[j]+dz/2),V(0.025,0.15,dz));
+  }
+}
+
+function stairFlight(B, x0,y0,x1,y1,zc,w=0.6){
+  for(const s of [-1,1]) B.tube('stair', V(x0,y0,zc+s*w/2), V(x1,y1,zc+s*w/2), 0.025);
+  const n=Math.max(2,Math.round((y1-y0)/0.22));
+  for(let k=1;k<n;k++){ const t=k/n; B.box('tread', V(x0+(x1-x0)*t, y0+(y1-y0)*t, zc), V(0.2,0.035,w)); }
+  for(const s of [-1,1]) B.tube('rail', V(x0,y0+0.9,zc+s*w/2), V(x1,y1+0.9,zc+s*w/2), 0.02);
+}
+function stairTower(B, xa, xb, zc, lv){
+  for(let k=0;k<lv.length-1;k++){
+    const fwd=k%2===0, xs=fwd?xa:xb, xe=fwd?xb:xa;
+    stairFlight(B, xs, lv[k], xe, lv[k+1], zc);
+    if(k<lv.length-2) B.box('deck', V(xe+(fwd?-0.12:0.12), lv[k+1]+R+0.02, zc), V(0.3,0.04,0.64));
+  }
+}
+function ladder(B, x, z, y0, y1, along, w=0.45){
+  const [ax,az]=along==='x'?[1,0]:[0,1], h=w/2;
+  const A=(s,y)=>V(x+ax*s*h, y, z+az*s*h);
+  B.tube('stair',A(-1,y0),A(-1,y1),0.02); B.tube('stair',A(1,y0),A(1,y1),0.02);
+  for(let y=y0+0.3;y<y1-0.05;y+=0.3) B.tube('stair',A(-1,y),A(1,y),0.014);
+}
+const cum=(x0,arr)=>arr.reduce((a,d)=>(a.push(a[a.length-1]+d),a),[x0]);
+
+/* ---------------- the three assemblies ---------------- */
+function buildMain(){
+  const B=new Builder('main');
+  const xs=cum(MAIN_X0, MAIN_BAYS), zs=MAIN_Z, nI=xs.length-1;
+  const cells=[]; for(let i=0;i<nI;i++) for(let j=0;j<5;j++) cells.push([i,j]);
+  const postSpan=(i,j)=>{
+    const end=i===0||i===nI, bottom=WING_LINES.has(i)?4.148:BASE;
+    if(j===2||j===3) return end?[[MAIN_DECK,MAIN_TOP]]:[];          // over the fuselage: guard posts at ends only
+    if(j===1||j===4) return [[bottom, end?MAIN_TOP:MAIN_DECK]];
+    return [[bottom, MAIN_TOP]];
+  };
+  gridScaffold(B,{xs,zs,cells,postSpan,levels:MAIN_LEVELS,
+    rails:[MAIN_DECK+0.5,MAIN_DECK+1.0,MAIN_TOP], braceLevels:[...MAIN_LEVELS,MAIN_TOP]});
+  // transverse + longitudinal beams carrying the deck over the fuselage
+  for(const x of xs) B.tube('beam',V(x,MAIN_DECK,-2.25),V(x,MAIN_DECK,2.25),0.03);
+  for(const z of [-0.75,0.75]) B.tube('beam',V(xs[0],MAIN_DECK,z),V(xs[nI],MAIN_DECK,z),0.03);
+  const hatch=new Set(); for(const i of [0,9,nI-1]) for(const j of [0,4]) hatch.add(i+','+j);
+  decks(B, xs, zs, cells, MAIN_DECK, hatch);
+  // stair towers in the first and last bays, ladders in the 1200 bay (both sides)
+  for(const j of [0,4]){
+    const zc = j===0 ? zs[0]+0.45 : zs[5]-0.45;
+    stairTower(B, xs[0]+0.1, xs[1]-0.1, zc, [0.15, 2.148, 4.148, MAIN_DECK]);
+    stairTower(B, xs[nI]-0.1, xs[nI-1]+0.1, zc, [0.15, 2.148, 4.148, MAIN_DECK]);
+    ladder(B, (xs[9]+xs[10])/2, j===0?zs[0]+0.35:zs[5]-0.35, 0.15, MAIN_DECK+1.0, 'x');
+  }
+  return B;
+}
+
+function buildNose(){
+  const B=new Builder('nose');
+  const xs=[-1.8,0,1.8], zs=[-0.9,0.9], cells=[[0,0],[1,0]];
+  for(const t of NOSE_TOWERS){
+    B.m.compose(V(t.x,0,t.z), new THREE.Quaternion().setFromAxisAngle(UP,t.rot), V(1,1,1));
+    gridScaffold(B,{xs,zs,cells,postSpan:()=>[[BASE,NOSE_TOP]],levels:[0.648,2.148,NOSE_DECK],
+      rails:[NOSE_DECK+0.5,NOSE_DECK+1.0,NOSE_TOP], braceLevels:[0.648,2.148,NOSE_DECK,NOSE_TOP]});
+    decks(B, xs, zs, cells, NOSE_DECK, new Set(['0,0']));
+    stairTower(B, -1.7, -0.1, t.side*0.45, [0.15, 2.148, NOSE_DECK]);
+  }
+  return B;
+}
+
+function buildTail(){
+  const B=new Builder('tail');
+  const xs=TAIL_X, zs=TAIL_Z, cells=[];
+  for(let i=0;i<5;i++) cells.push([i,1],[i,3]);           // rows either side of the fin
+  for(let i=2;i<5;i++) cells.push([i,0],[i,4]);           // outer rows
+  cells.push([3,2]);                                      // ladder well behind the fin
+  const postSpan=(i)=>{
+    if(i===0) return [[6.148, 8.148]];                     // cantilever bay A1–B1
+    if(i<=2)  return [[BASE,3.648],[5.948,12.648]];        // gap for horizontal stabilizer
+    if(i<=4)  return [[BASE,12.648]];
+    return [[BASE,11.148]];                                // F1 line
+  };
+  gridScaffold(B,{xs,zs,cells,postSpan,levels:TAIL_LEVELS,rails:[7.148]});
+  TAIL_DECKS.forEach((y,k)=>{
+    const c=[]; for(let i=(k===0?0:1);i<=3;i++) c.push([i,1],[i,3]);
+    decks(B, xs, zs, c, y);
+  });
+  ladder(B, xs[3]+0.3, 0, 0.15, 12.148, 'z');
+  for(const y of TAIL_DECKS) B.box('hatch', V(xs[3]+1.15,y+R+0.02,0), V(1.2,0.04,1.17));
+  return B;
+}
+
+/* ---------------- three.js scene ---------------- */
+const app=document.getElementById('app');
+const renderer=new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled=true;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+app.appendChild(renderer.domElement);
+const labelRenderer=new CSS2DRenderer();
+labelRenderer.setSize(innerWidth,innerHeight);
+Object.assign(labelRenderer.domElement.style,{position:'absolute',top:0,left:0,pointerEvents:'none'});
+app.appendChild(labelRenderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xeef1f4);
+scene.fog=new THREE.Fog(0xeef1f4,140,260);
+const camera=new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.1, 1000);
+const controls=new OrbitControls(camera, renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=0.08; controls.maxPolarAngle=Math.PI*0.499;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0xb9c2cc,1.6));
+const sun=new THREE.DirectionalLight(0xffffff,2.2);
+sun.position.set(-20,45,30); sun.target.position.set(26,0,0);
+sun.castShadow=true; sun.shadow.mapSize.set(4096,4096);
+Object.assign(sun.shadow.camera,{left:-40,right:40,top:30,bottom:-30,near:1,far:150});
+sun.shadow.bias=-0.0005; scene.add(sun, sun.target);
+
+const exportRoot=new THREE.Group(); exportRoot.name='A321_Tail_Working_Platform'; scene.add(exportRoot);
+const layerGroups={};
+for(const k of Object.keys(LAYERS)){ const g=new THREE.Group(); g.name=k; layerGroups[k]=g;
+  (['labels','floor'].includes(k)?scene:exportRoot).add(g); }
+
+// floor
+{
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(400,400), new THREE.MeshStandardMaterial({color:0xdfe2e5,roughness:.95}));
+  floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; layerGroups.floor.add(floor);
+  const grid=new THREE.GridHelper(160,160,0xc4cad1,0xd2d7dc); grid.position.set(25,0.002,0); layerGroups.floor.add(grid);
+  const cl=new THREE.Mesh(new THREE.PlaneGeometry(60,0.12), new THREE.MeshBasicMaterial({color:0xf0b429}));
+  cl.rotation.x=-Math.PI/2; cl.position.set(25,0.004,0); layerGroups.floor.add(cl);
+}
+
+/* ---------------- materials & instancing ---------------- */
+const GEO={
+  tube:new THREE.CylinderGeometry(1,1,1,10),
+  box:new THREE.BoxGeometry(1,1,1),
+  node:new THREE.CylinderGeometry(0.06,0.06,0.03,12),
+  wheel:new THREE.CylinderGeometry(1,1,1,16),
+};
+const MATS={};
+for(const [k,c] of Object.entries(CATS)){
+  MATS[k]=new THREE.MeshStandardMaterial({color:c.color, metalness:c.kind==='tube'||c.kind==='node'?0.55:0.2, roughness:c.kind==='tube'?0.38:0.7});
+  MATS[k].name=k;
+}
+const pickables=[];
+const stats={};
+function materialize(B){
+  const g=layerGroups[B.name]; stats[B.name]={};
+  for(const [cat,list] of Object.entries(B.items)){
+    const mesh=new THREE.InstancedMesh(GEO[CATS[cat].kind], MATS[cat], list.length);
+    const white=new THREE.Color(1,1,1);
+    list.forEach((it,i)=>{ mesh.setMatrixAt(i,it.matrix); mesh.setColorAt(i,white); });
+    mesh.instanceMatrix.needsUpdate=true; mesh.instanceColor.needsUpdate=true;
+    mesh.name=`${B.name}_${cat}`;
+    mesh.userData={cat, layer:B.name, info:list.map(x=>x.info)};
+    mesh.castShadow=cat!=='node'; mesh.receiveShadow=true;
+    mesh.computeBoundingSphere();
+    g.add(mesh); pickables.push(mesh);
+    const len=list.reduce((s,x)=>s+(x.info.len||0),0);
+    stats[B.name][cat]={n:list.length,len};
+  }
+}
+materialize(buildMain());
+materialize(buildNose());
+materialize(buildTail());
+
+/* ---------------- reference aircraft (A321 envelope) ---------------- */
+const AC_L=44.51;
+function fusProfile(x){
+  const TOP=5.945, BOT=1.995, W=1.975;            // Ø3.95 fuselage, top at +5.945
+  if(x<7){ const t=x/7, s=Math.sqrt(Math.max(0,1-(1-t)*(1-t)));
+    return {top:3.55+(TOP-3.55)*Math.pow(s,0.75), bot:3.55-(3.55-BOT)*Math.pow(s,1.25), w:W*s}; }
+  if(x<=31) return {top:TOP,bot:BOT,w:W};
+  const u=Math.min(1,(x-31)/(AC_L-31));
+  return {top:TOP-0.8*Math.pow(u,1.8), bot:BOT+(4.95-BOT)*Math.pow(u,0.85), w:0.12+(W-0.12)*(1-Math.pow(u,1.5))};
+}
+function fuselageGeometry(){
+  const NS=160, NR=48, pos=[], idx=[];
+  for(let s=0;s<=NS;s++){
+    const t=s/NS, x=AC_L*(t - 0.55*Math.sin(2*Math.PI*t)/(2*Math.PI));
+    const p=fusProfile(x), mid=(p.top+p.bot)/2, h=(p.top-p.bot)/2;
+    for(let r=0;r<=NR;r++){ const a=2*Math.PI*r/NR; pos.push(x, mid+h*Math.sin(a), p.w*Math.cos(a)); }
+  }
+  for(let s=0;s<NS;s++) for(let r=0;r<NR;r++){
+    const a=s*(NR+1)+r, b=a+NR+1; idx.push(a,b,a+1, b,b+1,a+1);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+/* lofted NACA-00xx surfaces (wing, stabiliser, fin) */
+function airfoil(n=28){ const pts=[];
+  for(let k=0;k<=n;k++){ const x=(1-Math.cos(Math.PI*k/n))/2;
+    const yt=5*(0.2969*Math.sqrt(x)-0.126*x-0.3516*x*x+0.2843*x**3-0.1036*x**4); pts.push([x,yt]); }
+  return [...pts.map(([x,y])=>[x,y]), ...pts.slice(1,-1).reverse().map(([x,y])=>[x,-y])];
+}
+const AF=airfoil();
+function loft(sections, vertical=false){
+  const pos=[], idx=[], n=AF.length;
+  for(const s of sections) for(const [u,t] of AF){
+    const th=t*s.t;   // s.t = thickness ratio × chord handled below
+    if(!vertical) pos.push(s.x+u*s.c, s.y+th*s.c, s.z);
+    else          pos.push(s.x+u*s.c, s.y, s.z+th*s.c);
+  }
+  for(let k=0;k<sections.length-1;k++) for(let i=0;i<n;i++){
+    const a=k*n+i, b=k*n+(i+1)%n, c=a+n, d=b+n; idx.push(a,c,b, b,c,d);
+  }
+  for(const k of [0,sections.length-1]){ for(let i=1;i<n-1;i++) idx.push(k*n, k*n+i, k*n+i+1); }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function buildAircraft(){
+  const g=layerGroups.aircraft;
+  const white=new THREE.MeshStandardMaterial({color:0xf5f7f9,roughness:.45,metalness:.05,side:THREE.DoubleSide});
+  const grey=new THREE.MeshStandardMaterial({color:0xd9dee4,roughness:.5,metalness:.1,side:THREE.DoubleSide});
+  const dark=new THREE.MeshStandardMaterial({color:0x2b3540,roughness:.3});
+  const tyre=new THREE.MeshStandardMaterial({color:0x1f2225,roughness:.9});
+  const add=(geo,mat,name)=>{ const m=new THREE.Mesh(geo,mat); m.castShadow=m.receiveShadow=true; m.name=name; g.add(m); return m; };
+  add(fuselageGeometry(), white, 'Fuselage');
+  for(const sgn of [-1,1]){
+    add(loft([{x:16.9,y:2.3,z:sgn*1.6,c:6.0,t:0.12},{x:16.9+0.51*16.3,y:2.3+16.3*0.0875,z:sgn*17.9,c:1.6,t:0.10}]), grey, 'Wing');
+    add(loft([{x:39.4,y:5.15,z:0,c:4.3,t:0.10},{x:42.3,y:5.8,z:sgn*6.23,c:1.5,t:0.09}]), grey, 'Horizontal stabiliser');
+    // engine nacelle (lathe along X)
+    const prof=[[0.0,0.92],[0.15,1.04],[0.6,1.08],[2.6,1.0],[3.9,0.72],[4.5,0.45],[4.5,0.0]].map(([x,r])=>new THREE.Vector2(r,x));
+    const nac=add(new THREE.LatheGeometry(prof,32), grey, 'Engine nacelle');
+    nac.rotation.z=-Math.PI/2; nac.position.set(15.3,1.85,sgn*5.75);
+    const inlet=add(new THREE.CircleGeometry(0.9,32), dark, 'Engine inlet');
+    inlet.rotation.y=-Math.PI/2; inlet.position.set(15.32,1.85,sgn*5.75);
+    add(new THREE.BoxGeometry(3.2,0.7,0.3), grey, 'Pylon').position.set(18.6,2.75,sgn*5.75);
+    // main gear
+    add(new THREE.CylinderGeometry(0.12,0.12,1.9,12), grey, 'Main gear strut').position.set(22.4,1.45,sgn*3.8);
+    for(const dz of [-0.42,0.42]){ const w=add(new THREE.CylinderGeometry(0.57,0.57,0.38,24), tyre, 'Main wheel');
+      w.rotation.x=Math.PI/2; w.position.set(22.4,0.57,sgn*3.8+dz); }
+  }
+  add(loft([{x:37.6,y:5.4,z:0,c:6.6,t:0.10},{x:42.2,y:11.76,z:0,c:2.2,t:0.09}],true), white, 'Vertical fin');
+  add(new THREE.CylinderGeometry(0.08,0.08,1.6,10), grey, 'Nose gear strut').position.set(5.1,1.2,0);
+  for(const dz of [-0.24,0.24]){ const w=add(new THREE.CylinderGeometry(0.38,0.38,0.24,20), tyre, 'Nose wheel');
+    w.rotation.x=Math.PI/2; w.position.set(5.1,0.38,dz); }
+  // cabin windows + cockpit glazing
+  const win=new THREE.InstancedMesh(new THREE.BoxGeometry(0.22,0.32,0.02), dark, 2*58);
+  const m=new THREE.Matrix4(); let n=0;
+  for(const sgn of [-1,1]) for(let k=0;k<58;k++){ const x=7.6+k*0.533; if((x>11.0&&x<11.9)||(x>22.6&&x<23.6)) { m.makeScale(0,0,0);} else m.makeTranslation(x,4.65,sgn*1.97); win.setMatrixAt(n++,m); }
+  win.name='Windows'; g.add(win);
+  for(const sgn of [-1,1]){ const c=add(new THREE.BoxGeometry(0.9,0.38,0.02), dark, 'Cockpit window');
+    c.position.set(2.15,4.75,sgn*1.45); c.rotation.y=sgn*0.55; }
+}
+buildAircraft();
+
+/* ---------------- workers for scale ---------------- */
+function worker(x,y,z,rot=0){
+  const g=new THREE.Group();
+  const suit=new THREE.MeshStandardMaterial({color:0x2f6fb0,roughness:.8});
+  const vest=new THREE.MeshStandardMaterial({color:0xf2c230,roughness:.7});
+  const skin=new THREE.MeshStandardMaterial({color:0xd9a77c,roughness:.8});
+  const hat=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.5});
+  const P=(geo,mat,px,py,pz)=>{ const m=new THREE.Mesh(geo,mat); m.position.set(px,py,pz); m.castShadow=true; g.add(m); return m; };
+  for(const s of [-1,1]){ P(new THREE.CapsuleGeometry(0.075,0.72,4,8),suit,0,0.45,s*0.1);
+    P(new THREE.CapsuleGeometry(0.055,0.55,4,8),suit,0,1.12,s*0.25).rotation.x=s*0.15; }
+  P(new THREE.CapsuleGeometry(0.17,0.42,4,10),vest,0,1.2,0);
+  P(new THREE.SphereGeometry(0.11,16,12),skin,0,1.6,0);
+  P(new THREE.SphereGeometry(0.13,16,8,0,Math.PI*2,0,Math.PI/2),hat,0,1.64,0);
+  g.position.set(x,y,z); g.rotation.y=rot; g.name='Worker'; layerGroups.people.add(g);
+}
+const dk=y=>y+R+0.04;
+worker(9.0,dk(MAIN_DECK),-3.1,0.4); worker(14.5,dk(MAIN_DECK),0.4,-1.2); worker(27.0,dk(MAIN_DECK),3.2,2.5); worker(33.5,dk(MAIN_DECK),-1.4,0.2);
+worker(40.2,dk(6.148),-1.4,Math.PI); worker(41.8,dk(8.148),1.5,Math.PI); worker(42.7,dk(9.648),-1.3,Math.PI/2); worker(43.6,dk(11.148),1.4,-Math.PI/2);
+worker(1.35,dk(NOSE_DECK),-2.4,-1.1);
+
+/* ---------------- labels ---------------- */
+function label(text,x,y,z,cls='lbl'){ const d=document.createElement('div'); d.className=cls; d.textContent=text;
+  const o=new CSS2DObject(d); o.position.set(x,y,z); layerGroups.labels.add(o); }
+label('Main deck EL +6.048',20,MAIN_TOP+0.6,-4.05);
+label('Main platform 31.8 m × 8.1 m',20,MAIN_TOP+1.5,-4.05);
+label('Tail tower top EL +12.648',45.5,13.3,-4.2);
+['A1','B1','C1','D1','E1','F1'].forEach((t,i)=>label(t,TAIL_X[i],14.3,-4.2,'lbl grid'));
+TAIL_DECKS.forEach(y=>label(`EL +${y.toFixed(3)}`,TAIL_X[0]-0.3,y+0.3,2.4));
+label('Nose deck EL +4.048',1.0,NOSE_TOP+0.6,-3.2);
+label('Wing — platform hangs above',20.2,4.6,-5.2);
+['D','E','F'].forEach((t,i)=>label(t,MAIN_X0+1.8*i,MAIN_TOP+2.6,-4.05,'lbl grid'));
+
+/* ---------------- UI: layers, components ---------------- */
+const hex=c=>'#'+c.toString(16).padStart(6,'0');
+function checkbox(container, key, def, onChange){
+  const l=document.createElement('label');
+  l.innerHTML=`<input type="checkbox" ${def.on?'checked':''}><span class="sw" style="background:${hex(def.color)}"></span>${def.label}`;
+  l.querySelector('input').addEventListener('change',e=>onChange(e.target.checked));
+  container.appendChild(l);
+}
+for(const [k,d] of Object.entries(LAYERS)) checkbox(document.getElementById('layers'),k,d,v=>{layerGroups[k].visible=v;});
+function applyGroups(){ for(const m of pickables) m.visible=GROUPS[CATS[m.userData.cat].grp].on; }
+for(const [k,d] of Object.entries(GROUPS)) checkbox(document.getElementById('cats'),k,d,v=>{d.on=v;applyGroups();});
+
+// quantities table
+{
+  const t=document.getElementById('qty'); const names={main:'Main platform',nose:'Nose towers',tail:'Tail tower'};
+  let html='';
+  for(const [ly,s] of Object.entries(stats)){
+    const tubeLen=['post','ledger','brace','rail','beam'].reduce((a,c)=>a+(s[c]?.len||0),0);
+    html+=`<tr><td colspan=2 style="padding-top:6px"><b>${names[ly]}</b></td></tr>
+      <tr><td>Standards</td><td>${s.post?.n||0}</td></tr>
+      <tr><td>Ledgers / braces</td><td>${(s.ledger?.n||0)} / ${(s.brace?.n||0)}</td></tr>
+      <tr><td>Deck panels (incl. hatches)</td><td>${(s.deck?.n||0)+(s.hatch?.n||0)}</td></tr>
+      <tr><td>Casters</td><td>${s.caster?.n||0}</td></tr>
+      <tr><td>Tube length</td><td>${tubeLen.toFixed(0)} m</td></tr>`;
+  }
+  t.innerHTML=html;
+}
+
+/* ---------------- section cut ---------------- */
+const cutPlane=new THREE.Plane(new THREE.Vector3(-1,0,0), 40.15);
+let cutKeepNose=true;
+const cutOn=document.getElementById('cutOn'), cutX=document.getElementById('cutX'), cutVal=document.getElementById('cutVal');
+function updateCut(){
+  const x=+cutX.value; cutVal.textContent=`X = ${x.toFixed(2)} m`;
+  cutPlane.normal.set(cutKeepNose?-1:1,0,0); cutPlane.constant=cutKeepNose?x:-x;
+  renderer.clippingPlanes=cutOn.checked?[cutPlane]:[];
+}
+cutOn.onchange=updateCut; cutX.oninput=updateCut;
+document.getElementById('cutFlip').onclick=()=>{cutKeepNose=!cutKeepNose;updateCut();};
+{
+  const box=document.getElementById('cutPresets');
+  ['A1','B1','C1','D1','E1','F1'].forEach((t,i)=>{ const b=document.createElement('button'); b.textContent=t;
+    b.title=`Section ${t}-${t} (looking forward from the tail)`;
+    b.onclick=()=>{ cutOn.checked=true; cutKeepNose=true; cutX.value=TAIL_X[i]+0.05; updateCut(); setView('section'); };
+    box.appendChild(b); });
+}
+
+/* ---------------- views ---------------- */
+const VIEWS={
+  iso:    {p:[-14,30,42],  t:[24,4,0]},
+  plan:   {p:[25,95,0.01], t:[25,0,0]},
+  side:   {p:[25,6,78],    t:[25,5,0]},
+  front:  {p:[-32,6.5,0],  t:[10,5.5,0]},
+  tail:   {p:[44,7,-34],   t:[44,6.5,0]},
+  tailIso:{p:[66,20,-22],  t:[43,6.5,0]},
+  nose:   {p:[-12,10,-16], t:[3,4,0]},
+  section:{p:[80,7,0.01],  t:[35,6.5,0]},
+};
+let tween=null;
+function setView(name, instant=false){
+  const v=VIEWS[name]; if(!v) return;
+  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===name));
+  const p1=V(...v.p), t1=V(...v.t);
+  if(instant){ camera.position.copy(p1); controls.target.copy(t1); controls.update(); return; }
+  tween={p0:camera.position.clone(),t0:controls.target.clone(),p1,t1,start:performance.now(),dur:700};
+}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+document.getElementById('toggle').onclick=()=>document.getElementById('panel').classList.toggle('open');
+setView((location.hash||'').slice(1) in VIEWS ? location.hash.slice(1) : 'iso', true);
+
+/* ---------------- picking ---------------- */
+const ray=new THREE.Raycaster(), ndc=new THREE.Vector2(), pickBox=document.getElementById('pick');
+let sel=null, down=null;
+renderer.domElement.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];});
+renderer.domElement.addEventListener('pointerup',e=>{
+  if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>5) return;
+  ndc.set(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1);
+  ray.setFromCamera(ndc,camera);
+  const targets=[...pickables.filter(m=>m.visible&&m.parent.visible), ...(layerGroups.aircraft.visible?layerGroups.aircraft.children:[])];
+  const hits=ray.intersectObjects(targets,false).filter(h=>!cutOn.checked||cutPlane.distanceToPoint(h.point)>=0);
+  if(sel){ sel.mesh.setColorAt(sel.id,new THREE.Color(1,1,1)); sel.mesh.instanceColor.needsUpdate=true; sel=null; }
+  if(!hits.length){ pickBox.style.display='none'; return; }
+  const h=hits[0], o=h.object, names={main:'Main fuselage platform',nose:'Nose tower',tail:'Tail tower'};
+  let html;
+  if(o.isInstancedMesh && o.userData.info){
+    const info=o.userData.info[h.instanceId], c=CATS[o.userData.cat];
+    sel={mesh:o,id:h.instanceId}; o.setColorAt(h.instanceId,new THREE.Color(3,0.6,0.4)); o.instanceColor.needsUpdate=true;
+    html=`<b>${c.label}</b>${names[o.userData.layer]}<br>`;
+    if(info.len) html+=`Length ${(info.len*1000).toFixed(0)} mm · EL +${info.y0.toFixed(3)} → +${info.y1.toFixed(3)} m`;
+    else if(info.size) html+=`${(info.size.x*1000).toFixed(0)} × ${(info.size.z*1000).toFixed(0)} mm · EL +${info.y.toFixed(3)} m`;
+    else if(info.y!==undefined) html+=`EL +${info.y.toFixed(3)} m`;
+  } else {
+    html=`<b>${o.name||'Aircraft'}</b>Airbus A321 — reference envelope only`;
+  }
+  html+=`<br><span style="color:var(--muted)">Point X ${h.point.x.toFixed(2)} · Y ${h.point.y.toFixed(2)} · Z ${h.point.z.toFixed(2)} m</span>`;
+  pickBox.innerHTML=html; pickBox.style.display='block';
+});
+
+/* ---------------- GLB export ---------------- */
+document.getElementById('glb').onclick=()=>{
+  const note=document.getElementById('glbNote');
+  note.textContent='Preparing…';
+  new GLTFExporter().parse(exportRoot, buf=>{
+    const blob=new Blob([buf],{type:'model/gltf-binary'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='A321_tail_working_platform.glb';
+    document.body.appendChild(a); a.click(); a.remove();
+    note.textContent=`GLB ready (${(blob.size/1e6).toFixed(1)} MB). If nothing downloaded, this viewer blocks downloads — open the page directly in a browser.`;
+  }, err=>{ note.textContent='Export failed: '+err.message; }, {binary:true});
+};
+
+/* ---------------- loop ---------------- */
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight); labelRenderer.setSize(innerWidth,innerHeight); });
+renderer.setAnimationLoop(now=>{
+  if(tween){ const k=Math.min(1,(now-tween.start)/tween.dur), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    camera.position.lerpVectors(tween.p0,tween.p1,e); controls.target.lerpVectors(tween.t0,tween.t1,e); if(k>=1) tween=null; }
+  controls.update();
+  layerGroups.labels.children.forEach(o=>{o.visible=!cutOn.checked;});
+  renderer.render(scene,camera); labelRenderer.render(scene,camera);
+});
+window.__ready=true;
+</script>
+</body>
+</html>

@@ -613,14 +613,35 @@ renderer.domElement.addEventListener('pointerup',e=>{
 });
 
 /* ---------------- GLB export ---------------- */
+// minimal store-only ZIP (used where the host viewer only accepts .zip saves)
+function zipOne(name, data){
+  const crcT=new Uint32Array(256).map((_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;return c>>>0;});
+  let crc=0xFFFFFFFF; for(const b of data) crc=crcT[(crc^b)&255]^(crc>>>8); crc=(crc^0xFFFFFFFF)>>>0;
+  const fn=new TextEncoder().encode(name), sz=data.length;
+  const lh=new DataView(new ArrayBuffer(30)), ch=new DataView(new ArrayBuffer(46)), eo=new DataView(new ArrayBuffer(22));
+  lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint32(14,crc,true); lh.setUint32(18,sz,true); lh.setUint32(22,sz,true); lh.setUint16(26,fn.length,true);
+  ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint32(16,crc,true); ch.setUint32(20,sz,true); ch.setUint32(24,sz,true); ch.setUint16(28,fn.length,true);
+  const cdOff=30+fn.length+sz;
+  eo.setUint32(0,0x06054b50,true); eo.setUint16(8,1,true); eo.setUint16(10,1,true); eo.setUint32(12,46+fn.length,true); eo.setUint32(16,cdOff,true);
+  return new Blob([lh,fn,data,ch,fn,eo]);
+}
+let hostDownloads=null;
+if(window.claude?.use) window.claude.use('downloads').then(d=>{hostDownloads=d;}).catch(()=>{});
 document.getElementById('glb').onclick=()=>{
   const note=document.getElementById('glbNote');
   note.textContent='Preparing…';
-  new GLTFExporter().parse(exportRoot, buf=>{
+  new GLTFExporter().parse(exportRoot, async buf=>{
+    const name='A321_tail_working_platform.glb';
+    if(hostDownloads){
+      try{ await hostDownloads.save({filename:'A321_tail_working_platform_glb.zip', data:zipOne(name,new Uint8Array(buf))});
+        note.textContent='Saved as a .zip — unzip it to get the .glb file.'; }
+      catch(e){ note.textContent = e?.code==='declined' ? 'Download cancelled.' : 'Download not available here: '+(e?.message||e?.code||e); }
+      return;
+    }
     const blob=new Blob([buf],{type:'model/gltf-binary'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='A321_tail_working_platform.glb';
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
     document.body.appendChild(a); a.click(); a.remove();
-    note.textContent=`GLB ready (${(blob.size/1e6).toFixed(1)} MB). If nothing downloaded, this viewer blocks downloads — open the page directly in a browser.`;
+    note.textContent=`GLB ready (${(blob.size/1e6).toFixed(1)} MB).`;
   }, err=>{ note.textContent='Export failed: '+err.message; }, {binary:true});
 };
 

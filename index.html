@@ -31,7 +31,7 @@
   input[type=range]{width:100%}
   table{width:100%;border-collapse:collapse;font-size:12px}
   td{padding:2px 0;border-bottom:1px solid #edf0f3}
-  td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   #pick{position:fixed;right:12px;bottom:12px;padding:10px 14px;min-width:220px;max-width:340px;display:none}
   #pick b{display:block;margin-bottom:2px}
   #hint{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);padding:6px 12px;color:var(--muted);font-size:12px;white-space:nowrap}
@@ -39,6 +39,18 @@
   .lbl{font:600 11px system-ui,sans-serif;color:#fff;background:rgba(29,39,51,.82);padding:2px 6px;border-radius:4px;white-space:nowrap;pointer-events:none}
   .lbl.grid{background:#fff;color:var(--ink);border:1.5px solid var(--ink);border-radius:50%;width:26px;height:26px;padding:0;display:flex;align-items:center;justify-content:center}
   .note{color:var(--muted);font-size:11px;margin-top:6px}
+  #bom{position:fixed;right:12px;top:84px;bottom:12px;width:min(620px,calc(100% - 24px));padding:12px 14px;display:none;flex-direction:column;z-index:5}
+  #bom.open{display:flex}
+  .bomBody{overflow:auto;flex:1;border:1px solid var(--line);border-radius:8px}
+  table.bom th{position:sticky;top:0;background:#f4f6f8;text-align:right;font-weight:600;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  table.bom th:nth-child(-n+2), table.bom td:nth-child(-n+2){text-align:left}
+  table.bom td{white-space:nowrap;padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums}
+  table.bom tr.grp td{background:#fafbfc;font-weight:600;border-top:1px solid var(--line)}
+  table.bom tr{cursor:pointer}
+  table.bom tr:hover td{background:#eef4fb}
+  table.bom tr.sel td{background:#fde9dc}
+  table.bom tr.tot td{font-weight:700;background:#f4f6f8;cursor:default}
+  #pick{z-index:6}
   @media (max-width:760px){
     header{flex-direction:column}
     #views{margin-left:0;max-width:none;justify-content:flex-start}
@@ -86,8 +98,9 @@
   <div class="row"><span id="cutVal" style="flex:1">X = 40.15 m</span>
     <button id="cutFlip" title="Swap which side is kept">⇄</button></div>
   <div class="row" style="margin-top:6px" id="cutPresets"></div>
-  <h2>Quantities (model)</h2>
+  <h2>Bill of materials</h2>
   <table id="qty"></table>
+  <div class="row" style="margin-top:6px"><button id="bomOpen" class="on">Open full BOM</button></div>
   <h2>Export</h2>
   <div class="row">
     <button id="glb">Download .glb</button>
@@ -96,6 +109,22 @@
   <div class="note">Dimensions taken from the PDF drawing; aircraft is reference geometry only. Units: metres from nose tip (X), ground (Y).</div>
 </aside>
 
+<div id="bom" class="card">
+  <div class="row" style="margin-bottom:6px">
+    <b style="font-size:15px;flex:1">Bill of Materials</b>
+    <button id="bomClose" title="Close">✕</button>
+  </div>
+  <div class="row" style="margin-bottom:8px">
+    <button id="bomCsv">Download CSV</button>
+    <button id="bomCopy">Copy table</button>
+    <button id="bomClear">Clear highlight</button>
+    <span id="bomMsg" class="note" style="margin:0"></span>
+  </div>
+  <div class="bomBody"><table id="bomTable" class="bom"></table></div>
+  <div class="note">Click a line to highlight those parts in the 3D view. Quantities are counted from the 3D model.
+    Standards are split into 3.0/2.5/2.0/1.5/1.0/0.5 m stock lengths (estimate); couplers/pins, ties and wheel brakes are not listed.
+    Preliminary — check against the supplier's component catalogue before ordering.</div>
+</div>
 <div id="pick" class="card"></div>
 <div id="hint" class="card">Drag to orbit · right-drag to pan · scroll to zoom · click a part for details</div>
 
@@ -139,7 +168,7 @@ const CATS = {
   jack:  {label:'Base jack',               color:0x4a525a, kind:'tube',  grp:'structure'},
   node:  {label:'Rosette node',            color:0x9aa4ae, kind:'node',  grp:'structure'},
   caster:{label:'Caster wheel',            color:0x24282c, kind:'wheel', grp:'structure'},
-  brace: {label:'Diagonal brace',          color:0x5b84b1, kind:'tube',  grp:'brace'},
+  brace: {label:'Diagonal brace (bay × lift)',          color:0x5b84b1, kind:'tube',  grp:'brace'},
   rail:  {label:'Guardrail',               color:0xf0b429, kind:'tube',  grp:'rail'},
   deck:  {label:'Steel deck panel',        color:0x7f8b98, kind:'box',   grp:'deck'},
   hatch: {label:'Access hatch deck',       color:0xe36d2a, kind:'box',   grp:'deck'},
@@ -167,7 +196,10 @@ const LAYERS = {
 /* ---------------- geometry builder ---------------- */
 class Builder{
   constructor(name){ this.name=name; this.items={}; this.m=new THREE.Matrix4(); }
-  push(cat, matrix, info){ (this.items[cat] ||= []).push({matrix, info}); }
+  push(cat, matrix, info){
+    if(this.tag){ info.tag=this.tag; info.tagFirst=!this.tag.used; this.tag.used=true; }   // composite BOM items (stairs, ladders)
+    (this.items[cat] ||= []).push({matrix, info});
+  }
   tube(cat, a, b, r=R){
     const A=a.clone().applyMatrix4(this.m), B=b.clone().applyMatrix4(this.m);
     const d=B.clone().sub(A), len=d.length(); if(len<1e-4) return;
@@ -240,23 +272,28 @@ function decks(B, xs, zs, cells, y, hatch=new Set()){
 }
 
 function stairFlight(B, x0,y0,x1,y1,zc,w=0.6){
-  for(const s of [-1,1]) B.tube('stair', V(x0,y0,zc+s*w/2), V(x1,y1,zc+s*w/2), 0.025);
   const n=Math.max(2,Math.round((y1-y0)/0.22));
+  B.tag={item:'Stair flight (stringers, treads, handrails)', size:`W${Math.round(w*1000)} · rise ${Math.round((y1-y0)*1000)} mm · ${n-1} treads`};
+  for(const s of [-1,1]) B.tube('stair', V(x0,y0,zc+s*w/2), V(x1,y1,zc+s*w/2), 0.025);
   for(let k=1;k<n;k++){ const t=k/n; B.box('tread', V(x0+(x1-x0)*t, y0+(y1-y0)*t, zc), V(0.2,0.035,w)); }
   for(const s of [-1,1]) B.tube('rail', V(x0,y0+0.9,zc+s*w/2), V(x1,y1+0.9,zc+s*w/2), 0.02);
+  B.tag=null;
 }
 function stairTower(B, xa, xb, zc, lv){
   for(let k=0;k<lv.length-1;k++){
     const fwd=k%2===0, xs=fwd?xa:xb, xe=fwd?xb:xa;
     stairFlight(B, xs, lv[k], xe, lv[k+1], zc);
-    if(k<lv.length-2) B.box('deck', V(xe+(fwd?-0.12:0.12), lv[k+1]+R+0.02, zc), V(0.3,0.04,0.64));
+    if(k<lv.length-2){ B.tag={item:'Stair landing plate',size:'300 × 640 mm'};
+      B.box('deck', V(xe+(fwd?-0.12:0.12), lv[k+1]+R+0.02, zc), V(0.3,0.04,0.64)); B.tag=null; }
   }
 }
 function ladder(B, x, z, y0, y1, along, w=0.45){
   const [ax,az]=along==='x'?[1,0]:[0,1], h=w/2;
   const A=(s,y)=>V(x+ax*s*h, y, z+az*s*h);
+  B.tag={item:'Access ladder', size:`W${Math.round(w*1000)} · ${(y1-y0).toFixed(2)} m`};
   B.tube('stair',A(-1,y0),A(-1,y1),0.02); B.tube('stair',A(1,y0),A(1,y1),0.02);
   for(let y=y0+0.3;y<y1-0.05;y+=0.3) B.tube('stair',A(-1,y),A(1,y),0.014);
+  B.tag=null;
 }
 const cum=(x0,arr)=>arr.reduce((a,d)=>(a.push(a[a.length-1]+d),a),[x0]);
 
@@ -526,21 +563,115 @@ for(const [k,d] of Object.entries(LAYERS)) checkbox(document.getElementById('lay
 function applyGroups(){ for(const m of pickables) m.visible=GROUPS[CATS[m.userData.cat].grp].on; }
 for(const [k,d] of Object.entries(GROUPS)) checkbox(document.getElementById('cats'),k,d,v=>{d.on=v;applyGroups();});
 
-// quantities table
-{
-  const t=document.getElementById('qty'); const names={main:'Main platform',nose:'Nose towers',tail:'Tail tower'};
-  let html='';
-  for(const [ly,s] of Object.entries(stats)){
-    const tubeLen=['post','ledger','brace','rail','beam'].reduce((a,c)=>a+(s[c]?.len||0),0);
-    html+=`<tr><td colspan=2 style="padding-top:6px"><b>${names[ly]}</b></td></tr>
-      <tr><td>Standards</td><td>${s.post?.n||0}</td></tr>
-      <tr><td>Ledgers / braces</td><td>${(s.ledger?.n||0)} / ${(s.brace?.n||0)}</td></tr>
-      <tr><td>Deck panels (incl. hatches)</td><td>${(s.deck?.n||0)+(s.hatch?.n||0)}</td></tr>
-      <tr><td>Casters</td><td>${s.caster?.n||0}</td></tr>
-      <tr><td>Tube length</td><td>${tubeLen.toFixed(0)} m</td></tr>`;
+/* ---------------- bill of materials (counted from the model) ---------------- */
+const BOM_LAYERS=['main','nose','tail'];
+const BOM_LAYER_NAMES={main:'Main platform',nose:'Nose towers',tail:'Tail tower'};
+const BOM_ORDER=['Standard (vertical)','Ledger','Diagonal brace (bay × lift)','Guardrail','Transverse support beam','Longitudinal support beam',
+  'Deck panel','Hatch deck (with trapdoor)','Toe board','Stair flight (stringers, treads, handrails)','Stair landing plate',
+  'Access ladder','Base jack (adjustable)','Caster wheel'];
+const BOM_UNIT={'Deck panel':'m²','Hatch deck (with trapdoor)':'m²'};
+const STOCK=[3.0,2.5,2.0,1.5,1.0,0.5];
+function stockSplit(L){ const out=[]; let r=L; while(r>0.05){ const p=STOCK.find(s=>s<=r+0.05)||0.5; out.push(p); r-=p; } return out; }
+const mmR=v=>Math.round(v*1000), r100=v=>Math.round(v*10)*100;
+function bomKeys(cat, info){
+  if(info.tag) return [{item:info.tag.item, size:info.tag.size, ref:!info.tagFirst}];
+  const isTube=info.len!==undefined, v=isTube?info.y1-info.y0:0, h=isTube?Math.sqrt(Math.max(0,info.len**2-v*v)):0;
+  switch(cat){
+    case 'post':   return stockSplit(info.len).map(p=>({item:'Standard (vertical)', size:`${p.toFixed(1)} m`, len:p}));
+    case 'ledger': return [{item:'Ledger', size:`${mmR(h)} mm`, len:h}];
+    case 'brace':  return [{item:'Diagonal brace (bay × lift)', size:`${r100(h)} × ${mmR(v)} mm`, len:info.len}];
+    case 'rail':   return [{item:'Guardrail', size:`${mmR(h)} mm`, len:h}];
+    case 'beam':   return h>10 ? [{item:'Longitudinal support beam', size:`${h.toFixed(1)} m run`, len:h}]
+                               : [{item:'Transverse support beam', size:`${mmR(h)} mm`, len:h}];
+    case 'jack':   return [{item:'Base jack (adjustable)', size:'—'}];
+    case 'caster': return [{item:'Caster wheel', size:'—'}];
+    case 'deck': case 'hatch': {
+      const x=info.size.x+0.03, z=info.size.z+0.03, a=r100(Math.max(x,z)), b=r100(Math.min(x,z));
+      return [{item:cat==='deck'?'Deck panel':'Hatch deck (with trapdoor)', size:`${a} × ${b} mm`, area:x*z}]; }
+    case 'toe': { const L=Math.max(info.size.x,info.size.z); return [{item:'Toe board', size:`${r100(L)} mm`, len:L}]; }
   }
-  t.innerHTML=html;
+  return [];   // rosette nodes are part of the standards
 }
+const BOM=new Map();
+for(const m of pickables){
+  const ly=m.userData.layer; m.userData.bom=[];
+  m.userData.info.forEach(info=>{
+    const ks=bomKeys(m.userData.cat, info);
+    m.userData.bom.push(ks.map(k=>k.item+'|'+k.size));
+    for(const k of ks){ if(k.ref) continue;
+      const key=k.item+'|'+k.size;
+      let r=BOM.get(key); if(!r) BOM.set(key, r={key, item:k.item, size:k.size, qty:{main:0,nose:0,tail:0}, len:0, area:0});
+      r.qty[ly]++; r.len+=k.len||0; r.area+=k.area||0; }
+  });
+}
+const bomRows=[...BOM.values()].sort((a,b)=>(BOM_ORDER.indexOf(a.item)-BOM_ORDER.indexOf(b.item))
+  ||((parseFloat(b.size)||0)-(parseFloat(a.size)||0))||a.size.localeCompare(b.size));
+const rowTotal=r=>BOM_LAYERS.reduce((s,l)=>s+r.qty[l],0);
+const extent=r=>BOM_UNIT[r.item] ? `${r.area.toFixed(1)} m²` : r.len ? `${r.len.toFixed(1)} m` : '';
+
+// summary in the side panel
+{
+  const byItem=new Map();
+  for(const r of bomRows){ const s=byItem.get(r.item)||{n:0}; s.n+=rowTotal(r); byItem.set(r.item,s); }
+  const tube=bomRows.filter(r=>['Standard (vertical)','Ledger','Diagonal brace (bay × lift)','Guardrail','Transverse support beam','Longitudinal support beam'].includes(r.item))
+    .reduce((s,r)=>s+r.len,0);
+  const deck=bomRows.filter(r=>BOM_UNIT[r.item]).reduce((s,r)=>s+r.area,0);
+  document.getElementById('qty').innerHTML=[...byItem].map(([k,s])=>`<tr><td>${k}</td><td>${s.n}</td></tr>`).join('')
+    + `<tr><td><b>Steel tube, total</b></td><td><b>${tube.toFixed(0)} m</b></td></tr>`
+    + `<tr><td><b>Deck area, total</b></td><td><b>${deck.toFixed(0)} m²</b></td></tr>`;
+}
+
+// full BOM drawer
+let hlKeys=null;
+const C_WHITE=new THREE.Color(1,1,1), C_HL=new THREE.Color(2.4,0.55,0.15), C_DIM=new THREE.Color(0.3,0.31,0.33);
+function baseColor(m,i){ if(!hlKeys) return C_WHITE; return m.userData.bom[i].some(k=>hlKeys.has(k))?C_HL:C_DIM; }
+function highlight(keys){
+  hlKeys=keys&&keys.length?new Set(keys):null;
+  for(const m of pickables){ for(let i=0;i<m.count;i++) m.setColorAt(i,baseColor(m,i)); m.instanceColor.needsUpdate=true; }
+  document.querySelectorAll('#bomTable tr[data-keys]').forEach(tr=>tr.classList.toggle('sel', !!hlKeys && tr.dataset.keys.split('\n').every(k=>hlKeys.has(k))));
+}
+{
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  let html=`<tr><th>Item</th><th>Size</th><th>Main</th><th>Nose</th><th>Tail</th><th>Total</th><th>Length / area</th></tr>`;
+  let no=0;
+  for(const item of BOM_ORDER){
+    const rows=bomRows.filter(r=>r.item===item); if(!rows.length) continue;
+    const sum=l=>rows.reduce((s,r)=>s+(l?r.qty[l]:rowTotal(r)),0);
+    const ext=BOM_UNIT[item]?`${rows.reduce((s,r)=>s+r.area,0).toFixed(1)} m²`:rows.some(r=>r.len)?`${rows.reduce((s,r)=>s+r.len,0).toFixed(1)} m`:'';
+    html+=`<tr class="grp" data-keys="${esc(rows.map(r=>r.key).join('\n'))}"><td colspan=2>${++no}. ${esc(item)}</td>${BOM_LAYERS.map(l=>`<td>${sum(l)||''}</td>`).join('')}<td>${sum()}</td><td>${ext}</td></tr>`;
+    if(rows.length>1||rows[0].size!=='—') for(const r of rows)
+      html+=`<tr data-keys="${esc(r.key)}"><td></td><td>${esc(r.size)}</td>${BOM_LAYERS.map(l=>`<td>${r.qty[l]||''}</td>`).join('')}<td>${rowTotal(r)}</td><td>${extent(r)}</td></tr>`;
+  }
+  const t=document.getElementById('bomTable'); t.innerHTML=html;
+  t.addEventListener('click',e=>{ const tr=e.target.closest('tr[data-keys]'); if(!tr) return;
+    const keys=tr.dataset.keys.split('\n'); highlight(tr.classList.contains('sel')?null:keys); });
+}
+function bomCSV(){
+  const q=s=>/[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;
+  const lines=[['No','Item','Size',...BOM_LAYERS.map(l=>BOM_LAYER_NAMES[l]),'Total qty','Total length (m)','Total area (m2)'].join(',')];
+  let no=0, last='';
+  for(const r of bomRows){ if(r.item!==last){no++; last=r.item;}
+    lines.push([no,q(r.item),q(r.size),...BOM_LAYERS.map(l=>r.qty[l]),rowTotal(r),r.len?r.len.toFixed(2):'',r.area?r.area.toFixed(2):''].join(',')); }
+  return '﻿A321 Tail Working Platform - Bill of Materials (from 3D model; drawing set A321-T001A..T007A; preliminary)\n'+lines.join('\n')+'\n';
+}
+const bomMsg=document.getElementById('bomMsg');
+document.getElementById('bomOpen').onclick=()=>{ document.getElementById('bom').classList.add('open'); pickBox.style.display='none'; };
+document.getElementById('bomClose').onclick=()=>{ document.getElementById('bom').classList.remove('open'); highlight(null); };
+document.getElementById('bomClear').onclick=()=>highlight(null);
+document.getElementById('bomCopy').onclick=async()=>{
+  try{ await navigator.clipboard.writeText(bomCSV().replace(/,/g,'\t')); bomMsg.textContent='Copied — paste into Excel.'; }
+  catch{ bomMsg.textContent='Copy was blocked by the browser.'; }
+};
+document.getElementById('bomCsv').onclick=async()=>{
+  const name='A321_tail_platform_BOM.csv', data=bomCSV();
+  if(hostDownloads){
+    try{ await hostDownloads.save({filename:name, data}); bomMsg.textContent='Saved.'; }
+    catch(e){ bomMsg.textContent = e?.code==='declined'?'Cancelled.':'Download not available here — use Copy table.'; }
+    return;
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'text/csv'})); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); bomMsg.textContent='CSV downloaded.';
+};
 
 /* ---------------- section cut ---------------- */
 const cutPlane=new THREE.Plane(new THREE.Vector3(-1,0,0), 40.15);
@@ -594,7 +725,7 @@ renderer.domElement.addEventListener('pointerup',e=>{
   ray.setFromCamera(ndc,camera);
   const targets=[...pickables.filter(m=>m.visible&&m.parent.visible), ...(layerGroups.aircraft.visible?layerGroups.aircraft.children:[])];
   const hits=ray.intersectObjects(targets,false).filter(h=>!cutOn.checked||cutPlane.distanceToPoint(h.point)>=0);
-  if(sel){ sel.mesh.setColorAt(sel.id,new THREE.Color(1,1,1)); sel.mesh.instanceColor.needsUpdate=true; sel=null; }
+  if(sel){ sel.mesh.setColorAt(sel.id,baseColor(sel.mesh,sel.id)); sel.mesh.instanceColor.needsUpdate=true; sel=null; }
   if(!hits.length){ pickBox.style.display='none'; return; }
   const h=hits[0], o=h.object, names={main:'Main fuselage platform',nose:'Nose tower',tail:'Tail tower'};
   let html;
@@ -605,6 +736,8 @@ renderer.domElement.addEventListener('pointerup',e=>{
     if(info.len) html+=`Length ${(info.len*1000).toFixed(0)} mm · EL +${info.y0.toFixed(3)} → +${info.y1.toFixed(3)} m`;
     else if(info.size) html+=`${(info.size.x*1000).toFixed(0)} × ${(info.size.z*1000).toFixed(0)} mm · EL +${info.y.toFixed(3)} m`;
     else if(info.y!==undefined) html+=`EL +${info.y.toFixed(3)} m`;
+    const bk=[...new Set(o.userData.bom[h.instanceId])];
+    if(bk.length) html+=`<br>BOM: ${bk.map(k=>k.replace('|',' · ')).join(', ')}`;
   } else {
     html=`<b>${o.name||'Aircraft'}</b>Airbus A321 — reference envelope only`;
   }
